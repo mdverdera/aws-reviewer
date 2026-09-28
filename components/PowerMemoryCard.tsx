@@ -32,12 +32,12 @@ export default function PowerMemoryCard({ powerMemory1, powerMemory2, visible }:
           <div className="space-y-3">
             {powerMemory1 && (
               <div className="bg-white rounded-lg p-3 border border-purple-100">
-                <p className="text-slate-700 font-medium leading-relaxed">{powerMemory1}</p>
+                <p className="text-slate-700 font-medium leading-relaxed whitespace-pre-wrap">{powerMemory1}</p>
               </div>
             )}
             {powerMemory2 && (
               <div className="bg-white rounded-lg p-3 border border-purple-100">
-                <p className="text-slate-700 font-medium leading-relaxed">{powerMemory2}</p>
+                <p className="text-slate-700 font-medium leading-relaxed whitespace-pre-wrap">{powerMemory2}</p>
               </div>
             )}
           </div>
