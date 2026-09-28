@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { getSheetNames, parseExcelSheet, parseGoogleSheetUrl } from '@/lib/excelParser';
+import { getSheetNames, parseExcelSheet, getGoogleSheetNames, parseGoogleSheetByName } from '@/lib/excelParser';
 import { ReviewCard } from '@/types/reviewer';
 
 function ErrorBlock({ msg }: { msg: string }) {
@@ -42,6 +42,8 @@ export default function ImportExcel({ onImport }: ImportExcelProps) {
   const [gsUrl, setGsUrl] = useState('');
   const [gsLoading, setGsLoading] = useState(false);
   const [gsError, setGsError] = useState<string | null>(null);
+  const [gsSheetNames, setGsSheetNames] = useState<string[] | null>(null);
+  const [gsSpreadsheetId, setGsSpreadsheetId] = useState<string | null>(null);
 
   // ── File import ──────────────────────────────────────────────────────────
 
@@ -102,19 +104,44 @@ export default function ImportExcel({ onImport }: ImportExcelProps) {
 
   // ── Google Sheets import ─────────────────────────────────────────────────
 
-  const handleGoogleSheetImport = async () => {
+  // Step 1: fetch sheet names
+  const handleGoogleSheetLoad = async () => {
     setGsError(null);
+    setGsSheetNames(null);
+    setGsSpreadsheetId(null);
     if (!gsUrl.trim()) {
       setGsError('Please paste a Google Sheets URL.');
       return;
     }
     setGsLoading(true);
-    const result = await parseGoogleSheetUrl(gsUrl.trim());
+    const result = await getGoogleSheetNames(gsUrl.trim());
+    setGsLoading(false);
+    if ('error' in result) {
+      setGsError(result.error);
+      return;
+    }
+    const { sheetNames, id } = result;
+    setGsSpreadsheetId(id);
+    if (sheetNames.length === 1) {
+      // Only one sheet — import directly
+      await handleGoogleSheetPick(id, sheetNames[0]);
+    } else {
+      setGsSheetNames(sheetNames);
+    }
+  };
+
+  // Step 2: user picks a sheet
+  const handleGoogleSheetPick = async (id: string, sheetName: string) => {
+    setGsLoading(true);
+    setGsError(null);
+    const result = await parseGoogleSheetByName(id, sheetName);
     setGsLoading(false);
     if (!result.success || result.cards.length === 0) {
       setGsError(result.error || 'No cards found.');
       return;
     }
+    setGsSheetNames(null);
+    setGsSpreadsheetId(null);
     onImport(result.cards);
   };
 
@@ -210,32 +237,63 @@ export default function ImportExcel({ onImport }: ImportExcelProps) {
       {/* ── Google Sheets tab ── */}
       {tab === 'gsheet' && (
         <div className="space-y-3">
-          {/* How-to */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 space-y-1">
-            <p className="font-semibold">How to share your Google Sheet:</p>
-            <ol className="list-decimal list-inside space-y-1 text-blue-700">
-              <li>Open your sheet in Google Sheets</li>
-              <li>Click <strong>Share</strong> → set to <strong>&ldquo;Anyone with the link&rdquo;</strong></li>
-              <li>Copy the URL from your browser address bar and paste it below</li>
-            </ol>
-          </div>
+          {/* How-to — hide once sheet selector is showing */}
+          {!gsSheetNames && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 space-y-1">
+              <p className="font-semibold">How to share your Google Sheet:</p>
+              <ol className="list-decimal list-inside space-y-1 text-blue-700">
+                <li>Open your sheet in Google Sheets</li>
+                <li>Click <strong>Share</strong> → set to <strong>&ldquo;Anyone with the link&rdquo;</strong></li>
+                <li>Copy the URL from your browser address bar and paste it below</li>
+              </ol>
+            </div>
+          )}
 
-          <input
-            type="url"
-            value={gsUrl}
-            onChange={(e) => setGsUrl(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleGoogleSheetImport(); }}
-            placeholder="https://docs.google.com/spreadsheets/d/…"
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent text-sm"
-          />
+          {/* URL input + load button — hide once sheet names are loaded */}
+          {!gsSheetNames && (
+            <>
+              <input
+                type="url"
+                value={gsUrl}
+                onChange={(e) => { setGsUrl(e.target.value); setGsError(null); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleGoogleSheetLoad(); }}
+                placeholder="https://docs.google.com/spreadsheets/d/…"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={handleGoogleSheetLoad}
+                disabled={gsLoading || !gsUrl.trim()}
+                className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors"
+              >
+                {gsLoading ? 'Loading sheets…' : 'Load Google Sheet'}
+              </button>
+            </>
+          )}
 
-          <button
-            onClick={handleGoogleSheetImport}
-            disabled={gsLoading || !gsUrl.trim()}
-            className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors"
-          >
-            {gsLoading ? 'Loading sheet…' : 'Import from Google Sheets'}
-          </button>
+          {/* Sheet selector — shown when workbook has multiple sheets */}
+          {gsSheetNames && gsSpreadsheetId && (
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+              <p className="font-semibold text-slate-700">Select a worksheet:</p>
+              <div className="grid gap-2">
+                {gsSheetNames.map((name) => (
+                  <button
+                    key={name}
+                    onClick={() => handleGoogleSheetPick(gsSpreadsheetId, name)}
+                    disabled={gsLoading}
+                    className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-orange-400 hover:bg-orange-50 transition-colors font-medium text-slate-700 disabled:opacity-50"
+                  >
+                    {gsLoading ? '⏳' : '📄'} {name}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => { setGsSheetNames(null); setGsSpreadsheetId(null); setGsError(null); }}
+                className="text-sm text-slate-500 hover:text-slate-700 underline"
+              >
+                ← Back
+              </button>
+            </div>
+          )}
 
           {gsError && <ErrorBlock msg={gsError} />}
         </div>
